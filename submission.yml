@@ -1,0 +1,64 @@
+# Real-Time Fraud Detection MLOps System
+# Submission Configuration File
+
+version: "1.0"
+project_name: "real-time-fraud-detection-mlops"
+
+# Setup phase - Initialize project dependencies and environment
+setup:
+  - pip install -r requirements.txt
+  - pip install -r requirements-dev.txt
+  - mkdir -p data/raw data/processed data/models data/artifacts
+  - mkdir -p logs reports
+
+# Data preparation phase
+data_preparation:
+  - python -m src.data.generate_synthetic_transactions --output data/raw/transactions.parquet --num_records 100000
+  - python -m src.data.preprocessing --input data/raw/transactions.parquet --output data/processed/features.parquet
+
+# Pipeline execution phase  
+pipeline:
+  - python -m src.pipelines.feature_engineering --config configs/features.yaml
+  - python -m src.pipelines.model_training --config configs/training.yaml --mlflow
+  - python -m src.pipelines.model_evaluation --model_path data/models/ensemble_model.pkl
+
+# Testing phase
+testing:
+  - pytest tests/ -v --cov=src --cov-report=term-with-missing --cov-report=html
+  - python -m src.pipelines.load_tests --config configs/load_test.yaml
+  - python -m src.api.test_inference_service --num_requests 1000 --latency_threshold 200
+
+# Evaluation phase
+evaluation:
+  - python -m src.evaluation.evaluate_model --model_path data/models/ensemble_model.pkl --test_data data/processed/test_features.parquet
+  - python -m src.evaluation.generate_report --output reports/evaluation_report.md
+  - python -m src.monitoring.validate_alerts --config configs/monitoring.yaml
+
+# Infrastructure phase
+infrastructure:
+  - docker-compose build
+  - docker-compose up -d
+  - kubectl apply -f infrastructure/k8s/namespace.yaml
+  - kubectl apply -f infrastructure/k8s/deployments.yaml
+  - kubectl apply -f infrastructure/k8s/services.yaml
+
+# Deployment phase
+deployment:
+  - python -m src.deployment.deploy_model --model_name ensemble_v1 --environment production
+  - python -m src.deployment.smoke_tests --endpoint http://localhost:8000/api/v1/predict
+
+# System requirements
+requirements:
+  - python>=3.9
+  - docker>=20.10
+  - kubernetes>=1.21
+  - postgres>=13
+  - kafka>=3.0
+  - redis>=6.0
+
+# Monitoring and validation
+monitoring:
+  - prometheus: http://localhost:9090
+  - grafana: http://localhost:3000
+  - mlflow: http://localhost:5000
+  - api_endpoint: http://localhost:8000/api/v1/predict
